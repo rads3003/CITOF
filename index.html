@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Citófono Pro v7 - Audio Fix</title>
+  <title>Citófono Pro v7 - Tactical Persist</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&family=Roboto:wght@400;700&display=swap"
     rel="stylesheet">
@@ -15,6 +15,7 @@
       --accent: #38bdf8;
       --green: #22c55e;
       --red: #ef4444;
+      --text-dim: #64748b;
     }
 
     body {
@@ -22,10 +23,50 @@
       color: white;
       font-family: 'Roboto', sans-serif;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
       min-height: 100vh;
       margin: 0;
+      padding-top: 20px;
+    }
+
+    /* Directorio de Anexos */
+    #directory {
+      display: none;
+      background: var(--panel);
+      width: 320px;
+      padding: 15px;
+      border-radius: 20px;
+      border: 1px solid #334155;
+      margin-bottom: 15px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    .dir-title {
+      font-size: 12px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 5px;
+      font-weight: bold;
+    }
+
+    .dir-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 5px;
+    }
+
+    .dir-item {
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 5px 10px;
+      border-radius: 5px;
+      display: flex;
+      justify-content: space-between;
+      color: #cbd5e1;
     }
 
     .container {
@@ -60,7 +101,7 @@
 
     #display-sub {
       font-size: 10px;
-      color: #64748b;
+      color: var(--text-dim);
       margin-top: 5px;
       font-weight: bold;
       z-index: 2;
@@ -172,11 +213,27 @@
     <button class="btn-action" style="display:block; width:220px; background:var(--accent)" onclick="startSystem()">ACTIVAR CITÓFONO</button>
   </div>
 
+  <div id="directory">
+    <div class="dir-title">Directorio de Anexos</div>
+    <div class="dir-grid">
+      <div class="dir-item"><span>Anexo 1</span> <b style="color:var(--accent)">#01</b></div>
+      <div class="dir-item"><span>Anexo 2</span> <b style="color:var(--accent)">#02</b></div>
+      <div class="dir-item"><span>Anexo 3</span> <b style="color:var(--accent)">#03</b></div>
+      <div class="dir-item"><span>Anexo 4</span> <b style="color:var(--accent)">#04</b></div>
+      <div class="dir-item"><span>Anexo 5</span> <b style="color:var(--accent)">#05</b></div>
+      <div class="dir-item"><span>Anexo 6</span> <b style="color:var(--accent)">#06</b></div>
+      <div class="dir-item"><span>Anexo 7</span> <b style="color:var(--accent)">#07</b></div>
+      <div class="dir-item"><span>Anexo 8</span> <b style="color:var(--accent)">#08</b></div>
+      <div class="dir-item"><span>Anexo 9</span> <b style="color:var(--accent)">#09</b></div>
+      <div class="dir-item"><span>Anexo 10</span> <b style="color:var(--accent)">#10</b></div>
+    </div>
+  </div>
+
   <div class="container">
     <div class="lcd" id="lcd-screen">
       <div id="v-meter" class="v-meter"></div>
-      <p id="display-main">ONLINE</p>
-      <span id="display-sub">ESPERANDO</span>
+      <p id="display-main">OFFLINE</p>
+      <span id="display-sub">ESPERANDO CONFIG</span>
     </div>
 
     <div class="keypad">
@@ -204,105 +261,128 @@
   <script>
     let myPeer, activeCall, localStream, dialNum = "", ringInterval, audioCtx;
 
-        async function startSystem() {
-            const id = document.getElementById('terminal-id').value;
-            if(!id) return alert("Ingresa un número");
-
-            try {
-                // Forzar permisos de audio desde el inicio
-                localStream = await navigator.mediaDevices.getUserMedia({audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }});
-                
-                // Visualizador de volumen para confirmar que el mic funciona
-                const aCtx = new AudioContext();
-                const source = aCtx.createMediaStreamSource(localStream);
-                const analyzer = aCtx.createAnalyser();
-                source.connect(analyzer);
-                const data = new Uint8Array(analyzer.frequencyBinCount);
-                function checkLevel() {
-                    analyzer.getByteFrequencyData(data);
-                    let sum = data.reduce((a,b) => a+b, 0);
-                    document.getElementById('v-meter').style.width = (sum/data.length)*2 + "%";
-                    requestAnimationFrame(checkLevel);
-                }
-                checkLevel();
-
-                myPeer = new Peer('citofono-v7-' + id);
-                myPeer.on('open', () => document.getElementById('setup').style.display = 'none');
-                
-                myPeer.on('call', call => {
-                    activeCall = call;
-                    playRing();
-                    ringInterval = setInterval(playRing, 1500);
-                    document.getElementById('call-btn').style.display = 'none';
-                    document.getElementById('answer-btn').style.display = 'block';
-                    document.getElementById('hang-btn').style.display = 'block';
-                    updateDisplay("CALL", "ENTRANTE: " + call.peer.split('-').pop());
-                });
-
-            } catch (err) { alert("¡Error! Activa el permiso de micrófono."); }
+    // AUTO-INICIO: Recupera el ID guardado si existe
+    window.onload = () => {
+        const savedId = localStorage.getItem('citofono_terminal_id');
+        if (savedId) {
+            document.getElementById('terminal-id').value = savedId;
+            startSystem();
         }
+    };
 
-        function playRing() {
-            if(!audioCtx) audioCtx = new AudioContext();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'square'; osc.frequency.value = 880;
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            gain.gain.setValueAtTime(0, audioCtx.currentTime);
-            gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.01);
-            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
-        }
+    async function startSystem() {
+        const idInput = document.getElementById('terminal-id');
+        const id = idInput.value;
+        if(!id) return alert("Ingrese un número de terminal");
 
-        function initiateCall() {
-            if(!dialNum) return;
-            const call = myPeer.call('citofono-v7-' + dialNum, localStream);
-            setupCallListeners(call);
-            updateDisplay("DIAL", "LLAMANDO...");
-        }
+        try {
+            // Guardar ID permanentemente en el navegador
+            localStorage.setItem('citofono_terminal_id', id);
 
-        function answerCall() {
-            clearInterval(ringInterval);
-            activeCall.answer(localStream);
-            setupCallListeners(activeCall);
-        }
+            localStream = await navigator.mediaDevices.getUserMedia({audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }});
+            
+            const aCtx = new AudioContext();
+            const source = aCtx.createMediaStreamSource(localStream);
+            const analyzer = aCtx.createAnalyser();
+            source.connect(analyzer);
+            const data = new Uint8Array(analyzer.frequencyBinCount);
+            function checkLevel() {
+                analyzer.getByteFrequencyData(data);
+                let sum = data.reduce((a,b) => a+b, 0);
+                document.getElementById('v-meter').style.width = (sum/data.length)*2 + "%";
+                requestAnimationFrame(checkLevel);
+            }
+            checkLevel();
 
-        function setupCallListeners(call) {
-            activeCall = call;
-            document.getElementById('answer-btn').style.display = 'none';
-            document.getElementById('call-btn').style.display = 'none';
-            document.getElementById('hang-btn').style.display = 'block';
-
-            call.on('stream', remoteStream => {
-                const audio = document.getElementById('audio-remote');
-                audio.srcObject = remoteStream;
-                // Truco para móviles: pausar y volver a dar play al recibir el flujo
-                audio.pause();
-                audio.play().catch(e => console.log("Reintento de audio necesario"));
-                updateDisplay("LIVE", "HABLANDO...");
+            myPeer = new Peer('citofono-v7-' + id);
+            myPeer.on('open', () => {
+                document.getElementById('setup').style.display = 'none';
+                document.getElementById('directory').style.display = 'block'; // Mostrar anexos
+                updateDisplay("READY", "TERM: " + id);
+            });
+            
+            myPeer.on('call', call => {
+                activeCall = call;
+                playRing();
+                ringInterval = setInterval(playRing, 1500);
+                document.getElementById('call-btn').style.display = 'none';
+                document.getElementById('answer-btn').style.display = 'block';
+                document.getElementById('hang-btn').style.display = 'block';
+                updateDisplay("CALL", "ENTRANTE: " + call.peer.split('-').pop());
             });
 
-            call.on('close', terminateCall);
-        }
+            myPeer.on('error', (err) => {
+                if(err.type === 'unavailable-id') {
+                    alert("ID ya en uso. Reiniciando configuración.");
+                    localStorage.removeItem('citofono_terminal_id');
+                    location.reload();
+                }
+            });
 
-        function terminateCall() {
-            if(activeCall) activeCall.close();
-            clearInterval(ringInterval);
-            document.getElementById('call-btn').style.display = 'block';
-            document.getElementById('answer-btn').style.display = 'none';
-            document.getElementById('hang-btn').style.display = 'none';
-            dialNum = "";
-            updateDisplay("READY", "LISTO");
-        }
+        } catch (err) { alert("¡Error! Activa el permiso de micrófono."); }
+    }
 
-        function press(n) { if(dialNum.length < 2) { dialNum += n; updateDisplay(dialNum, "MARCAR"); } }
-        function resetDial() { dialNum = ""; updateDisplay("READY", "LISTO"); }
-        function updateDisplay(m, s) { document.getElementById('display-main').innerText = m; document.getElementById('display-sub').innerText = s; }
-        function testAudio() { playRing(); alert("Probando sonido de timbre..."); }
+    function playRing() {
+        if(!audioCtx) audioCtx = new AudioContext();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square'; osc.frequency.value = 880;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.01);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+    }
+
+    function initiateCall() {
+        if(!dialNum) return;
+        const call = myPeer.call('citofono-v7-' + dialNum, localStream);
+        setupCallListeners(call);
+        updateDisplay("DIAL", "LLAMANDO AL " + dialNum);
+    }
+
+    function answerCall() {
+        clearInterval(ringInterval);
+        activeCall.answer(localStream);
+        setupCallListeners(activeCall);
+    }
+
+    function setupCallListeners(call) {
+        activeCall = call;
+        document.getElementById('answer-btn').style.display = 'none';
+        document.getElementById('call-btn').style.display = 'none';
+        document.getElementById('hang-btn').style.display = 'block';
+
+        call.on('stream', remoteStream => {
+            const audio = document.getElementById('audio-remote');
+            audio.srcObject = remoteStream;
+            audio.pause();
+            audio.play().catch(e => console.log("Reintento de audio"));
+            updateDisplay("LIVE", "HABLANDO...");
+        });
+
+        call.on('close', terminateCall);
+    }
+
+    function terminateCall() {
+        if(activeCall) activeCall.close();
+        clearInterval(ringInterval);
+        document.getElementById('call-btn').style.display = 'block';
+        document.getElementById('answer-btn').style.display = 'none';
+        document.getElementById('hang-btn').style.display = 'none';
+        dialNum = "";
+        const id = localStorage.getItem('citofono_terminal_id');
+        updateDisplay("READY", "TERM: " + id);
+    }
+
+    function press(n) { if(dialNum.length < 2) { dialNum += n; updateDisplay(dialNum, "MARCAR"); } }
+    function resetDial() { dialNum = ""; const id = localStorage.getItem('citofono_terminal_id'); updateDisplay("READY", "TERM: " + id); }
+    function updateDisplay(m, s) { document.getElementById('display-main').innerText = m; document.getElementById('display-sub').innerText = s; }
+    function testAudio() { playRing(); alert("Probando sonido de timbre..."); }
   </script>
 </body>
 
