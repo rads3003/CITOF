@@ -30,7 +30,7 @@
       padding-top: 20px;
     }
 
-    /* Directorio de Anexos */
+    /* Directorio Superior */
     #directory {
       display: none;
       background: var(--panel);
@@ -43,13 +43,12 @@
     }
 
     .dir-title {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--accent);
       text-transform: uppercase;
       letter-spacing: 1px;
-      margin-bottom: 10px;
-      border-bottom: 1px solid #334155;
-      padding-bottom: 5px;
+      margin-bottom: 8px;
+      text-align: center;
       font-weight: bold;
     }
 
@@ -60,13 +59,13 @@
     }
 
     .dir-item {
-      font-size: 11px;
-      background: rgba(0, 0, 0, 0.2);
-      padding: 5px 10px;
-      border-radius: 5px;
+      font-size: 10px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 4px 8px;
+      border-radius: 4px;
       display: flex;
       justify-content: space-between;
-      color: #cbd5e1;
+      border: 1px solid #334155;
     }
 
     .container {
@@ -209,12 +208,12 @@
 
   <div id="setup">
     <h2 style="color:var(--accent)">CONFIGURAR TERMINAL</h2>
-    <input type="number" id="terminal-id" placeholder="N° 1-10">
-    <button class="btn-action" style="display:block; width:220px; background:var(--accent)" onclick="startSystem()">ACTIVAR CITÓFONO</button>
+    <input type="number" id="terminal-id" placeholder="N°">
+    <button id="activate-btn" class="btn-action" style="display:block; width:220px; background:var(--accent)" onclick="startSystem()">ACTIVAR CITÓFONO</button>
   </div>
 
   <div id="directory">
-    <div class="dir-title">Directorio de Anexos</div>
+    <div class="dir-title">Anexos de Contacto</div>
     <div class="dir-grid">
       <div class="dir-item"><span>Anexo 1</span> <b style="color:var(--accent)">#01</b></div>
       <div class="dir-item"><span>Anexo 2</span> <b style="color:var(--accent)">#02</b></div>
@@ -232,8 +231,8 @@
   <div class="container">
     <div class="lcd" id="lcd-screen">
       <div id="v-meter" class="v-meter"></div>
-      <p id="display-main">OFFLINE</p>
-      <span id="display-sub">ESPERANDO CONFIG</span>
+      <p id="display-main">ONLINE</p>
+      <span id="display-sub">LISTO PARA OPERAR</span>
     </div>
 
     <div class="keypad">
@@ -261,33 +260,35 @@
   <script>
     let myPeer, activeCall, localStream, dialNum = "", ringInterval, audioCtx;
 
-    // AUTO-INICIO: Recupera el ID guardado si existe
+    // Persistencia: Si hay un ID guardado, lo pone en el input, pero espera el clic para activar audio
     window.onload = () => {
         const savedId = localStorage.getItem('citofono_terminal_id');
         if (savedId) {
             document.getElementById('terminal-id').value = savedId;
-            startSystem();
         }
     };
 
     async function startSystem() {
-        const idInput = document.getElementById('terminal-id');
-        const id = idInput.value;
-        if(!id) return alert("Ingrese un número de terminal");
+        const id = document.getElementById('terminal-id').value;
+        if(!id) return alert("Ingresa un número");
 
         try {
-            // Guardar ID permanentemente en el navegador
-            localStorage.setItem('citofono_terminal_id', id);
-
+            // 1. Inicializar Contexto de Audio (Debe ser por clic de usuario)
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // 2. Solicitar Micrófono
             localStream = await navigator.mediaDevices.getUserMedia({audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true
             }});
             
-            const aCtx = new AudioContext();
-            const source = aCtx.createMediaStreamSource(localStream);
-            const analyzer = aCtx.createAnalyser();
+            // Guardar configuración exitosa
+            localStorage.setItem('citofono_terminal_id', id);
+
+            // 3. Visualizador de volumen (V-Meter)
+            const source = audioCtx.createMediaStreamSource(localStream);
+            const analyzer = audioCtx.createAnalyser();
             source.connect(analyzer);
             const data = new Uint8Array(analyzer.frequencyBinCount);
             function checkLevel() {
@@ -298,11 +299,13 @@
             }
             checkLevel();
 
+            // 4. Iniciar Conexión Peer
             myPeer = new Peer('citofono-v7-' + id);
+            
             myPeer.on('open', () => {
                 document.getElementById('setup').style.display = 'none';
-                document.getElementById('directory').style.display = 'block'; // Mostrar anexos
-                updateDisplay("READY", "TERM: " + id);
+                document.getElementById('directory').style.display = 'block';
+                updateDisplay("READY", "TERMINAL: " + id);
             });
             
             myPeer.on('call', call => {
@@ -317,17 +320,20 @@
 
             myPeer.on('error', (err) => {
                 if(err.type === 'unavailable-id') {
-                    alert("ID ya en uso. Reiniciando configuración.");
+                    alert("ID ocupado. Intente con otro número.");
                     localStorage.removeItem('citofono_terminal_id');
                     location.reload();
                 }
             });
 
-        } catch (err) { alert("¡Error! Activa el permiso de micrófono."); }
+        } catch (err) { 
+            console.error(err);
+            alert("ERROR: No se pudo acceder al micrófono. Asegúrese de dar los permisos."); 
+        }
     }
 
     function playRing() {
-        if(!audioCtx) audioCtx = new AudioContext();
+        if(!audioCtx) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'square'; osc.frequency.value = 880;
@@ -340,12 +346,14 @@
 
     function initiateCall() {
         if(!dialNum) return;
+        if(audioCtx.state === 'suspended') audioCtx.resume();
         const call = myPeer.call('citofono-v7-' + dialNum, localStream);
         setupCallListeners(call);
-        updateDisplay("DIAL", "LLAMANDO AL " + dialNum);
+        updateDisplay("DIAL", "LLAMANDO...");
     }
 
     function answerCall() {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
         clearInterval(ringInterval);
         activeCall.answer(localStream);
         setupCallListeners(activeCall);
@@ -360,8 +368,11 @@
         call.on('stream', remoteStream => {
             const audio = document.getElementById('audio-remote');
             audio.srcObject = remoteStream;
-            audio.pause();
-            audio.play().catch(e => console.log("Reintento de audio"));
+            audio.play().catch(e => {
+                console.log("Interacción requerida para audio");
+                // Intento de reproducción forzada
+                document.body.addEventListener('click', () => audio.play(), {once: true});
+            });
             updateDisplay("LIVE", "HABLANDO...");
         });
 
@@ -376,13 +387,13 @@
         document.getElementById('hang-btn').style.display = 'none';
         dialNum = "";
         const id = localStorage.getItem('citofono_terminal_id');
-        updateDisplay("READY", "TERM: " + id);
+        updateDisplay("READY", "TERMINAL: " + id);
     }
 
     function press(n) { if(dialNum.length < 2) { dialNum += n; updateDisplay(dialNum, "MARCAR"); } }
-    function resetDial() { dialNum = ""; const id = localStorage.getItem('citofono_terminal_id'); updateDisplay("READY", "TERM: " + id); }
+    function resetDial() { dialNum = ""; const id = localStorage.getItem('citofono_terminal_id'); updateDisplay("READY", "TERMINAL: " + id); }
     function updateDisplay(m, s) { document.getElementById('display-main').innerText = m; document.getElementById('display-sub').innerText = s; }
-    function testAudio() { playRing(); alert("Probando sonido de timbre..."); }
+    function testAudio() { if(audioCtx) playRing(); else alert("Active el terminal primero."); }
   </script>
 </body>
 
