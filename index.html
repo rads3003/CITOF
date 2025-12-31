@@ -30,7 +30,6 @@
       padding-top: 20px;
     }
 
-    /* Directorio Superior */
     #directory {
       display: none;
       background: var(--panel);
@@ -39,7 +38,7 @@
       border-radius: 20px;
       border: 1px solid #334155;
       margin-bottom: 15px;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
 
     .dir-title {
@@ -60,7 +59,7 @@
 
     .dir-item {
       font-size: 10px;
-      background: rgba(0, 0, 0, 0.3);
+      background: rgba(0,0,0,0.3);
       padding: 4px 8px;
       border-radius: 4px;
       display: flex;
@@ -152,31 +151,11 @@
       display: none;
     }
 
-    #call-btn {
-      background: var(--green);
-      display: block;
-    }
+    #call-btn { background: var(--green); display: block; }
+    #answer-btn { background: var(--green); animation: blink 0.8s infinite; }
+    #hang-btn { background: var(--red); }
 
-    #answer-btn {
-      background: var(--green);
-      animation: blink 0.8s infinite;
-    }
-
-    #hang-btn {
-      background: var(--red);
-    }
-
-    @keyframes blink {
-
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: 0.6;
-      }
-    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
     #setup {
       position: fixed;
@@ -222,7 +201,7 @@
       <div class="dir-item"><span>Anexo 5</span> <b style="color:var(--accent)">#05</b></div>
       <div class="dir-item"><span>Anexo 6</span> <b style="color:var(--accent)">#06</b></div>
       <div class="dir-item"><span>Anexo 7</span> <b style="color:var(--accent)">#07</b></div>
-      <div class="dir-item"><span>Anexo 8</span> <b style="color:var(--accent)">#08</b></div>
+      <div class="dir-item)<span>Anexo 8</span> <b style="color:var(--accent)">#08</b></div>
       <div class="dir-item"><span>Anexo 9</span> <b style="color:var(--accent)">#09</b></div>
       <div class="dir-item"><span>Anexo 10</span> <b style="color:var(--accent)">#10</b></div>
     </div>
@@ -232,7 +211,7 @@
     <div class="lcd" id="lcd-screen">
       <div id="v-meter" class="v-meter"></div>
       <p id="display-main">ONLINE</p>
-      <span id="display-sub">LISTO PARA OPERAR</span>
+      <span id="display-sub">LISTO</span>
     </div>
 
     <div class="keypad">
@@ -260,7 +239,7 @@
   <script>
     let myPeer, activeCall, localStream, dialNum = "", ringInterval, audioCtx;
 
-    // Persistencia: Si hay un ID guardado, lo pone en el input, pero espera el clic para activar audio
+    // Persistencia: Solo carga el valor en el input, NO arranca el sistema solo.
     window.onload = () => {
         const savedId = localStorage.getItem('citofono_terminal_id');
         if (savedId) {
@@ -273,20 +252,20 @@
         if(!id) return alert("Ingresa un número");
 
         try {
-            // 1. Inicializar Contexto de Audio (Debe ser por clic de usuario)
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // 2. Solicitar Micrófono
+            // PROTOCOLO DE ACTIVACIÓN (Igual al original funcional)
+            // Primero pedimos el micrófono (esto lanza la ventana de permisos)
             localStream = await navigator.mediaDevices.getUserMedia({audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true
             }});
             
-            // Guardar configuración exitosa
+            // Si el permiso es otorgado, guardamos y avanzamos
             localStorage.setItem('citofono_terminal_id', id);
 
-            // 3. Visualizador de volumen (V-Meter)
+            // Iniciamos el motor de audio
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
             const source = audioCtx.createMediaStreamSource(localStream);
             const analyzer = audioCtx.createAnalyser();
             source.connect(analyzer);
@@ -299,7 +278,7 @@
             }
             checkLevel();
 
-            // 4. Iniciar Conexión Peer
+            // Conectamos a la red Peer
             myPeer = new Peer('citofono-v7-' + id);
             
             myPeer.on('open', () => {
@@ -320,7 +299,7 @@
 
             myPeer.on('error', (err) => {
                 if(err.type === 'unavailable-id') {
-                    alert("ID ocupado. Intente con otro número.");
+                    alert("ID ya en uso.");
                     localStorage.removeItem('citofono_terminal_id');
                     location.reload();
                 }
@@ -328,7 +307,7 @@
 
         } catch (err) { 
             console.error(err);
-            alert("ERROR: No se pudo acceder al micrófono. Asegúrese de dar los permisos."); 
+            alert("ERROR: Para que el citófono funcione, debes permitir el uso del micrófono en la ventana que aparecerá."); 
         }
     }
 
@@ -346,14 +325,14 @@
 
     function initiateCall() {
         if(!dialNum) return;
-        if(audioCtx.state === 'suspended') audioCtx.resume();
+        if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         const call = myPeer.call('citofono-v7-' + dialNum, localStream);
         setupCallListeners(call);
         updateDisplay("DIAL", "LLAMANDO...");
     }
 
     function answerCall() {
-        if(audioCtx.state === 'suspended') audioCtx.resume();
+        if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         clearInterval(ringInterval);
         activeCall.answer(localStream);
         setupCallListeners(activeCall);
@@ -369,8 +348,6 @@
             const audio = document.getElementById('audio-remote');
             audio.srcObject = remoteStream;
             audio.play().catch(e => {
-                console.log("Interacción requerida para audio");
-                // Intento de reproducción forzada
                 document.body.addEventListener('click', () => audio.play(), {once: true});
             });
             updateDisplay("LIVE", "HABLANDO...");
@@ -396,5 +373,4 @@
     function testAudio() { if(audioCtx) playRing(); else alert("Active el terminal primero."); }
   </script>
 </body>
-
 </html>
