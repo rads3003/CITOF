@@ -211,7 +211,7 @@
     <div class="lcd" id="lcd-screen">
       <div id="v-meter" class="v-meter"></div>
       <p id="display-main">ONLINE</p>
-      <span id="display-sub">LISTO</span>
+      <span id="display-sub">ESPERANDO</span>
     </div>
 
     <div class="keypad">
@@ -239,133 +239,106 @@
   <script>
     let myPeer, activeCall, localStream, dialNum = "", ringInterval, audioCtx;
 
-    // PERSISTENCIA: Cargar ID guardado
-    window.onload = () => {
-        const savedId = localStorage.getItem('citofono_v7_id');
-        if (savedId) document.getElementById('terminal-id').value = savedId;
-    };
+        async function startSystem() {
+            const id = document.getElementById('terminal-id').value;
+            if(!id) return alert("Ingresa un número");
 
-    async function startSystem() {
-        const id = document.getElementById('terminal-id').value;
-        if(!id) return alert("Ingrese un número de terminal");
-
-        try {
-            // 1. SOLICITAR MICROFONO (Protocolo Original)
-            localStream = await navigator.mediaDevices.getUserMedia({audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }});
-
-            // 2. INICIAR PEER (Red de comunicación)
-            myPeer = new Peer('citofono-v7-' + id);
-
-            // 3. EVENTO DE APERTURA: Esto garantiza que entramos al panel solo si la red conecta
-            myPeer.on('open', (peerId) => {
-                localStorage.setItem('citofono_v7_id', id);
-                document.getElementById('setup').style.display = 'none'; // OCULTAR SETUP
-                document.getElementById('directory').style.display = 'block'; // MOSTRAR ANEXOS
-                updateDisplay("READY", "TERM: " + id);
-                console.log("Terminal activo: " + peerId);
+            try {
+                // Forzar permisos de audio desde el inicio
+                localStream = await navigator.mediaDevices.getUserMedia({audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }});
                 
-                // Inicializar visualizador de audio
-                initAudioVisualizer();
-            });
+                // Visualizador de volumen para confirmar que el mic funciona
+                const aCtx = new AudioContext();
+                const source = aCtx.createMediaStreamSource(localStream);
+                const analyzer = aCtx.createAnalyser();
+                source.connect(analyzer);
+                const data = new Uint8Array(analyzer.frequencyBinCount);
+                function checkLevel() {
+                    analyzer.getByteFrequencyData(data);
+                    let sum = data.reduce((a,b) => a+b, 0);
+                    document.getElementById('v-meter').style.width = (sum/data.length)*2 + "%";
+                    requestAnimationFrame(checkLevel);
+                }
+                checkLevel();
 
-            myPeer.on('call', call => {
-                activeCall = call;
-                playRing();
-                ringInterval = setInterval(playRing, 1500);
-                document.getElementById('call-btn').style.display = 'none';
-                document.getElementById('answer-btn').style.display = 'block';
-                document.getElementById('hang-btn').style.display = 'block';
-                updateDisplay("CALL", "ENTRANTE: " + call.peer.split('-').pop());
-            });
+                myPeer = new Peer('citofono-v7-' + id);
+                myPeer.on('open', () => document.getElementById('setup').style.display = 'none');
+                
+                myPeer.on('call', call => {
+                    activeCall = call;
+                    playRing();
+                    ringInterval = setInterval(playRing, 1500);
+                    document.getElementById('call-btn').style.display = 'none';
+                    document.getElementById('answer-btn').style.display = 'block';
+                    document.getElementById('hang-btn').style.display = 'block';
+                    updateDisplay("CALL", "ENTRANTE: " + call.peer.split('-').pop());
+                });
 
-            myPeer.on('error', err => {
-                alert("Error de conexión: " + err.type);
-                if(err.type === 'unavailable-id') location.reload();
-            });
-
-        } catch (err) {
-            alert("¡ERROR CRÍTICO! No se pudo acceder al micrófono.");
+            } catch (err) { alert("¡Error! Activa el permiso de micrófono."); }
         }
-    }
 
-    function initAudioVisualizer() {
-        if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(localStream);
-        const analyzer = audioCtx.createAnalyser();
-        source.connect(analyzer);
-        const data = new Uint8Array(analyzer.frequencyBinCount);
-        function checkLevel() {
-            analyzer.getByteFrequencyData(data);
-            let sum = data.reduce((a,b) => a+b, 0);
-            document.getElementById('v-meter').style.width = (sum/data.length)*2 + "%";
-            requestAnimationFrame(checkLevel);
+        function playRing() {
+            if(!audioCtx) audioCtx = new AudioContext();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square'; osc.frequency.value = 880;
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.01);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
         }
-        checkLevel();
-    }
 
-    function playRing() {
-        if(!audioCtx) audioCtx = new AudioContext();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'square'; osc.frequency.value = 880;
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        gain.gain.setValueAtTime(0, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.01);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
-        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
-    }
+        function initiateCall() {
+            if(!dialNum) return;
+            const call = myPeer.call('citofono-v7-' + dialNum, localStream);
+            setupCallListeners(call);
+            updateDisplay("DIAL", "LLAMANDO...");
+        }
 
-    function initiateCall() {
-        if(!dialNum) return;
-        if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-        const call = myPeer.call('citofono-v7-' + dialNum, localStream);
-        setupCallListeners(call);
-        updateDisplay("DIAL", "LLAMANDO...");
-    }
+        function answerCall() {
+            clearInterval(ringInterval);
+            activeCall.answer(localStream);
+            setupCallListeners(activeCall);
+        }
 
-    function answerCall() {
-        if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-        clearInterval(ringInterval);
-        activeCall.answer(localStream);
-        setupCallListeners(activeCall);
-    }
+        function setupCallListeners(call) {
+            activeCall = call;
+            document.getElementById('answer-btn').style.display = 'none';
+            document.getElementById('call-btn').style.display = 'none';
+            document.getElementById('hang-btn').style.display = 'block';
 
-    function setupCallListeners(call) {
-        activeCall = call;
-        document.getElementById('answer-btn').style.display = 'none';
-        document.getElementById('call-btn').style.display = 'none';
-        document.getElementById('hang-btn').style.display = 'block';
+            call.on('stream', remoteStream => {
+                const audio = document.getElementById('audio-remote');
+                audio.srcObject = remoteStream;
+                // Truco para móviles: pausar y volver a dar play al recibir el flujo
+                audio.pause();
+                audio.play().catch(e => console.log("Reintento de audio necesario"));
+                updateDisplay("LIVE", "HABLANDO...");
+            });
 
-        call.on('stream', remoteStream => {
-            const audio = document.getElementById('audio-remote');
-            audio.srcObject = remoteStream;
-            audio.pause();
-            audio.play().catch(e => console.log("Click necesario para audio"));
-            updateDisplay("LIVE", "HABLANDO...");
-        });
+            call.on('close', terminateCall);
+        }
 
-        call.on('close', terminateCall);
-    }
+        function terminateCall() {
+            if(activeCall) activeCall.close();
+            clearInterval(ringInterval);
+            document.getElementById('call-btn').style.display = 'block';
+            document.getElementById('answer-btn').style.display = 'none';
+            document.getElementById('hang-btn').style.display = 'none';
+            dialNum = "";
+            updateDisplay("READY", "LISTO");
+        }
 
-    function terminateCall() {
-        if(activeCall) activeCall.close();
-        clearInterval(ringInterval);
-        document.getElementById('call-btn').style.display = 'block';
-        document.getElementById('answer-btn').style.display = 'none';
-        document.getElementById('hang-btn').style.display = 'none';
-        dialNum = "";
-        const id = localStorage.getItem('citofono_v7_id');
-        updateDisplay("READY", "TERM: " + id);
-    }
-
-    function press(n) { if(dialNum.length < 2) { dialNum += n; updateDisplay(dialNum, "MARCAR"); } }
-    function resetDial() { dialNum = ""; const id = localStorage.getItem('citofono_v7_id'); updateDisplay("READY", "TERM: " + id); }
-    function updateDisplay(m, s) { document.getElementById('display-main').innerText = m; document.getElementById('display-sub').innerText = s; }
-    function testAudio() { playRing(); alert("Probando sonido de timbre..."); }
+        function press(n) { if(dialNum.length < 2) { dialNum += n; updateDisplay(dialNum, "MARCAR"); } }
+        function resetDial() { dialNum = ""; updateDisplay("READY", "LISTO"); }
+        function updateDisplay(m, s) { document.getElementById('display-main').innerText = m; document.getElementById('display-sub').innerText = s; }
+        function testAudio() { playRing(); alert("Probando sonido de timbre..."); }
   </script>
 </body>
+
 </html>
